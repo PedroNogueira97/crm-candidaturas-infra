@@ -1,0 +1,103 @@
+# Produção (VPS). Usa imagens publicadas no GHCR; as tags vêm de scripts/deploy.sh.
+# Não executar diretamente sem BACKEND_TAG e FRONTEND_TAG definidos.
+#
+# A VPS é compartilhada: o Nginx do host já ocupa 80/443 e termina o HTTPS (certbot).
+# O Caddy deste stack escuta apenas em loopback (PROXY_BIND) e o Nginx encaminha o
+# domínio para ele (ver nginx/crm-candidatura.conf).
+name: crm-candidaturas
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-api-image: &api-image ghcr.io/pedronogueira97/crm-candidaturas-backend:${BACKEND_TAG:?BACKEND_TAG não definido}
+
+x-api-env: &api-env
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-crm}
+  SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}
+  FRONTEND_ORIGIN: https://${SITE_ADDRESS:?defina SITE_ADDRESS no .env}
+  COOKIE_SECURE: "true"
+  SESSION_MAX_AGE_SECONDS: ${SESSION_MAX_AGE_SECONDS:-43200}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  INITIAL_USER_EMAIL: ${INITIAL_USER_EMAIL:-}
+  INITIAL_USER_PASSWORD: ${INITIAL_USER_PASSWORD:-}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-crm}
+      POSTGRES_USER: ${POSTGRES_USER:-crm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C.UTF-8
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    logging: *logging
+    restart: unless-stopped
+
+  migrate:
+    image: *api-image
+    command: ["alembic", "upgrade", "head"]
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+    restart: "no"
+    profiles: ["migrate"]
+
+  api:
+    image: *api-image
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+    logging: *logging
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/pedronogueira97/crm-candidaturas-frontend:${FRONTEND_TAG:?FRONTEND_TAG não definido}
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+    logging: *logging
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2-alpine
+    environment:
+      # HTTP interno; o HTTPS público é responsabilidade do Nginx do host.
+      SITE_ADDRESS: ":80"
+    ports:
+      # Somente loopback: portas publicadas pelo Docker ignoram o UFW.
+      - "${PROXY_BIND:-127.0.0.1:8081}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - api
+      - web
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    logging: *logging
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

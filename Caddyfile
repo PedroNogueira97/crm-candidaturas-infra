@@ -1,0 +1,43 @@
+# Proxy único: frontend e API na mesma origem.
+# SITE_ADDRESS = ":80" (HTTP interno). Em produção, o Nginx do host termina o HTTPS
+# e encaminha para este Caddy em loopback.
+{
+	servers {
+		# Aceita X-Forwarded-* (proto https, IP do cliente) vindos do Nginx do host,
+		# que chega pela rede privada do Docker. Leitura da direita para a esquerda.
+		trusted_proxies static private_ranges
+		trusted_proxies_strict
+	}
+}
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# Readiness da API (inclui conexão com o PostgreSQL), usada pelo deploy e monitoramento.
+	handle /api/health {
+		rewrite * /ready
+		reverse_proxy api:8000
+	}
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

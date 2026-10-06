@@ -1,0 +1,76 @@
+# Ambiente local completo. Constrói as imagens a partir dos clones vizinhos:
+#   ../crm-candidaturas-backend e ../crm-candidaturas-frontend
+# Uso: cp .env.example .env && docker compose up -d --build
+name: crm-candidaturas
+
+x-api-build: &api-build
+  context: ../crm-candidaturas-backend
+
+x-api-env: &api-env
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-crm}
+  SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}
+  FRONTEND_ORIGIN: http://localhost:${HTTP_PORT:-8080}
+  COOKIE_SECURE: "false"
+  SESSION_MAX_AGE_SECONDS: ${SESSION_MAX_AGE_SECONDS:-43200}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  INITIAL_USER_EMAIL: ${INITIAL_USER_EMAIL:-}
+  INITIAL_USER_PASSWORD: ${INITIAL_USER_PASSWORD:-}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-crm}
+      POSTGRES_USER: ${POSTGRES_USER:-crm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C.UTF-8
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: *api-build
+    image: crm-candidaturas-backend:local
+    command: ["alembic", "upgrade", "head"]
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: *api-build
+    image: crm-candidaturas-backend:local
+    environment: *api-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../crm-candidaturas-frontend
+    image: crm-candidaturas-frontend:local
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2-alpine
+    environment:
+      SITE_ADDRESS: ":80"
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

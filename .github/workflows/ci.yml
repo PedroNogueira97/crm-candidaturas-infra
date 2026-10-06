@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validar compose de produção
+        run: |
+          cp .env.production.example .env
+          BACKEND_TAG=ci FRONTEND_TAG=ci docker compose -f compose.prod.yaml --env-file .env config -q
+
+      - name: Validar Caddyfile
+        run: |
+          docker run --rm -e SITE_ADDRESS=example.com -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh
