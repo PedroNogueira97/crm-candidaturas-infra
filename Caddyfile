@@ -36,7 +36,11 @@
 	}
 
 	handle /api/* {
-		reverse_proxy api:8000
+		reverse_proxy api:8000 {
+			# Um único IP (o cliente, já resolvido pelos trusted_proxies): a API não depende de
+			# como o Uvicorn escolhe um valor numa cadeia, e cadeias forjadas são descartadas.
+			header_up X-Forwarded-For {client_ip}
+		}
 	}
 
 	handle {
