@@ -115,6 +115,45 @@ sudo certbot --nginx -d crm-candidatura.lnmengenharia.com --redirect
 
 O certbot altera somente este site e já configura a renovação automática dos certificados.
 
+### 5.1 IP real dos clientes (Cloudflare)
+
+O domínio passa pelo proxy da Cloudflare, então o `$remote_addr` do Nginx é um IP da Cloudflare. O snippet `nginx/cloudflare-real-ip.conf` restaura o IP do cliente a partir do `CF-Connecting-IP`, mas **só** para requisições vindas das faixas da Cloudflare. Mexe apenas no site do CRM; n8n e vaultwarden não são afetados.
+
+Aplicar (ou reaplicar depois de atualizar as faixas), a partir do WSL, na raiz deste repositório:
+
+```sh
+scripts/update-cloudflare-ips.sh            # regenera o snippet; revisar e commitar o diff
+ssh vps 'mkdir -p ~/crm-nginx/backup'
+scp nginx/cloudflare-real-ip.conf vps:crm-nginx/
+ssh vps
+```
+
+Na VPS:
+
+```sh
+cd ~/crm-nginx
+SITE=/etc/nginx/sites-available/crm-candidatura.conf
+cp "$SITE" "backup/crm-candidatura.conf.$(date -u +%Y%m%dT%H%M%SZ)"
+sudo install -m 644 -o root -g root cloudflare-real-ip.conf /etc/nginx/snippets/cloudflare-real-ip.conf
+sudo nano "$SITE"   # aplicar as mudanças abaixo no bloco 443
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Mudanças no site em produção (que já tem os blocos do certbot), iguais às de `nginx/crm-candidatura.conf`:
+- depois de `client_max_body_size 10m;`: `include /etc/nginx/snippets/cloudflare-real-ip.conf;`
+- trocar `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` por `proxy_set_header X-Forwarded-For $remote_addr;`
+- acrescentar `proxy_set_header X-Request-ID $request_id;`
+
+Se `nginx -t` falhar, **não recarregue**: copie o backup de volta para `$SITE` e rode `nginx -t` de novo.
+
+Conferir:
+- `curl -s https://www.cloudflare.com/cdn-cgi/trace | grep ip=` mostra o seu IP público;
+- depois de um acesso ao domínio, o `client_ip` do log do Caddy é esse IP, não um IP da Cloudflare;
+- um `curl` com `-H 'X-Forwarded-For: 1.2.3.4' -H 'CF-Connecting-IP: 1.2.3.4'` continua registrando o seu IP real;
+- n8n e vaultwarden continuam respondendo.
+
+As faixas da Cloudflare mudam raramente. Revise a cada poucos meses com `scripts/update-cloudflare-ips.sh`: se o diff mudar, reaplique.
+
 ## 6. Impressão digital do servidor
 
 No seu computador:
