@@ -18,6 +18,7 @@ x-api-env: &api-env
   APP_VERSION: local
   INITIAL_USER_EMAIL: ${INITIAL_USER_EMAIL:-}
   INITIAL_USER_PASSWORD: ${INITIAL_USER_PASSWORD:-}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-}
 
 services:
   postgres:
