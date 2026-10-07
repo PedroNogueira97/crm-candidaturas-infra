@@ -13,6 +13,13 @@
 {$SITE_ADDRESS} {
 	encode zstd gzip
 
+	# Correlação de logs (docs/observabilidade.md): o mesmo X-Request-ID no log do Caddy e no
+	# da API. Em produção o Nginx do host já envia um; sem ele (ambiente local), o Caddy gera.
+	@sem_request_id not header X-Request-ID *
+	request_header @sem_request_id X-Request-ID {http.request.uuid}
+	# O log registra os cabeçalhos originais; o id efetivo vai num campo próprio.
+	log_append request_id {http.request.header.X-Request-ID}
+
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
@@ -36,8 +43,16 @@
 		reverse_proxy web:3000
 	}
 
+	# Sem dados pessoais (docs/observabilidade.md): a query string (busca, filtros) e o Referer
+	# saem do log. Cookie e Authorization já são ocultados pelo Caddy por padrão.
 	log {
 		output stdout
-		format json
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "\?.*$" "?[removido]"
+				request>headers>Referer delete
+			}
+		}
 	}
 }

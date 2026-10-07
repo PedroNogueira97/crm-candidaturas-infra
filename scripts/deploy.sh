@@ -46,6 +46,9 @@ FRONTEND_TAG="${new_frontend:-$prev_frontend}"
 [[ "$BACKEND_TAG" =~ $TAG_PATTERN ]] || die "tag do backend inválida"
 [[ "$FRONTEND_TAG" =~ $TAG_PATTERN ]] || die "tag do frontend inválida"
 export BACKEND_TAG FRONTEND_TAG
+# Recria o proxy quando o Caddyfile muda (ver label crm.caddyfile-sha256 no compose.prod.yaml).
+CADDYFILE_SHA256="$(sha256sum Caddyfile | cut -d" " -f1)"
+export CADDYFILE_SHA256
 
 log "backend: ${prev_backend:-<nenhum>} -> $BACKEND_TAG"
 log "frontend: ${prev_frontend:-<nenhum>} -> $FRONTEND_TAG"

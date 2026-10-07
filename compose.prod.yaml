@@ -6,11 +6,13 @@
 # domínio para ele (ver nginx/crm-candidatura.conf).
 name: crm-candidaturas
 
+# Logs locais são um buffer limitado por tamanho (5 MB x 2 por serviço, cerca de 15 dias no
+# tráfego de 2026-10) e somem quando o container é recriado. Ver docs/observabilidade.md.
 x-logging: &logging
   driver: json-file
   options:
-    max-size: "10m"
-    max-file: "5"
+    max-size: "5m"
+    max-file: "2"
 
 x-api-image: &api-image ghcr.io/pedronogueira97/crm-candidaturas-backend:${BACKEND_TAG:?BACKEND_TAG não definido}
 
@@ -21,6 +23,9 @@ x-api-env: &api-env
   COOKIE_SECURE: "true"
   SESSION_MAX_AGE_SECONDS: ${SESSION_MAX_AGE_SECONDS:-43200}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FORMAT: json
+  APP_ENV: production
+  APP_VERSION: ${BACKEND_TAG}
   INITIAL_USER_EMAIL: ${INITIAL_USER_EMAIL:-}
   INITIAL_USER_PASSWORD: ${INITIAL_USER_PASSWORD:-}
 
@@ -81,6 +86,11 @@ services:
 
   proxy:
     image: caddy:2-alpine
+    labels:
+      # O Caddyfile é montado como arquivo único e o deploy o substitui (novo inode): sem
+      # recriar o container, o Caddy continuaria lendo a versão antiga. O hash muda junto
+      # com o arquivo e faz o `up -d` recriar o proxy (CADDYFILE_SHA256 vem do deploy.sh).
+      crm.caddyfile-sha256: ${CADDYFILE_SHA256:-}
     environment:
       # HTTP interno; o HTTPS público é responsabilidade do Nginx do host.
       SITE_ADDRESS: ":80"

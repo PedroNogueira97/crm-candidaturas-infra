@@ -29,6 +29,7 @@ Frontend e API ficam na mesma origem, então não há CORS entre domínios e o c
 | `scripts/bootstrap-admin.sh` | Cria a conta do administrador (uma vez) |
 | `.github/workflows/deploy.yml` | Deploy na VPS via SSH |
 | `docs/vps-hostinger.md` | Preparação da VPS e configuração do GitHub |
+| `docs/observabilidade.md` | Contrato de logs JSON, catálogo de eventos, regras de LGPD e consultas |
 
 ## Ambiente local
 
