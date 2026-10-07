@@ -19,8 +19,22 @@ x-api-env: &api-env
   INITIAL_USER_EMAIL: ${INITIAL_USER_EMAIL:-}
   INITIAL_USER_PASSWORD: ${INITIAL_USER_PASSWORD:-}
   ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+  # Local: cadastro aberto e e-mails capturados pelo Mailpit (http://localhost:8025).
+  SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}
+  APP_BASE_URL: http://localhost:${HTTP_PORT:-8080}
+  SMTP_HOST: mailpit
+  SMTP_PORT: "1025"
+  SMTP_SECURITY: none
+  SMTP_FROM: nao-responda@crm.local
 
 services:
+  mailpit:
+    # Caixa de entrada falsa: nada sai para a internet.
+    image: axllent/mailpit:latest
+    ports:
+      - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
+    restart: unless-stopped
+
   postgres:
     image: postgres:17-alpine
     environment:

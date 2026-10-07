@@ -52,6 +52,7 @@ Acesse `http://localhost:8080` (porta configurável em `HTTP_PORT`). Comandos ú
 
 ```sh
 docker compose logs -f api web          # logs
+# E-mails do ambiente local (cadastro, nova senha): http://localhost:8025 (Mailpit)
 docker compose up -d --build api web    # reconstruir após mudar o código
 docker compose down                     # parar (mantém o banco)
 docker compose down -v                  # parar e APAGAR o banco local
