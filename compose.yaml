@@ -26,6 +26,9 @@ x-api-env: &api-env
   SMTP_PORT: "1025"
   SMTP_SECURITY: none
   SMTP_FROM: nao-responda@crm.local
+  # Login com Google (opcional). URI de retorno: http://localhost:8080/api/v1/auth/google/callback
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
 
 services:
   mailpit:
