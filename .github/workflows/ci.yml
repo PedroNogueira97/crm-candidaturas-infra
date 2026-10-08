@@ -25,4 +25,7 @@ jobs:
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
       - name: ShellCheck
-        run: shellcheck scripts/*.sh
+        run: shellcheck -x scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh
+
+      - name: Testes dos scripts
+        run: scripts/tests/dotenv_test.sh

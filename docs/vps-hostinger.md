@@ -87,6 +87,8 @@ INITIAL_USER_PASSWORD=<senha forte, mínimo 12 caracteres>
 BACKUP_RETENTION_DAYS=14
 ```
 
+Os scripts nunca executam o `.env` (`source`); eles leem só as chaves de que precisam com `scripts/lib/dotenv.sh`, seguindo as regras do docker compose. Valores com espaço ou `$` funcionam sem aspas. Mesmo assim, grave senhas de app (ex.: Gmail) **sem espaços**. Até 2026-10-08, uma senha com espaços quebrava o backup do deploy e um trecho dela aparecia no log do Actions.
+
 A porta `8081` precisa estar livre (`ss -tlnp | grep 8081` sem resultado). Se não estiver, use outra e ajuste o Nginx no passo 5.
 
 ## 4. DNS
