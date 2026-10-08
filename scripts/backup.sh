@@ -6,19 +6,20 @@
 set -Eeuo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/dotenv.sh
+source scripts/lib/dotenv.sh
 
 label="${1:-manual}"
 [[ "$label" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "rótulo inválido" >&2; exit 1; }
 
-set -a
-# shellcheck disable=SC1091
-source .env
-set +a
+# O .env nunca é executado (ver scripts/lib/dotenv.sh); só a retenção é lida dele.
+retention_days=$(dotenv_get BACKUP_RETENTION_DAYS 14)
+[[ "$retention_days" =~ ^[0-9]+$ ]] || { echo "BACKUP_RETENTION_DAYS inválido no .env" >&2; exit 1; }
 
 # Tags só são necessárias para o compose validar o arquivo; o backup usa apenas o postgres.
 if [[ -f .deploy/current.env ]]; then
-  # shellcheck disable=SC1091
-  source .deploy/current.env
+  BACKEND_TAG=$(dotenv_get BACKEND_TAG "" .deploy/current.env)
+  FRONTEND_TAG=$(dotenv_get FRONTEND_TAG "" .deploy/current.env)
 fi
 export BACKEND_TAG="${BACKEND_TAG:-none}" FRONTEND_TAG="${FRONTEND_TAG:-none}"
 
@@ -26,12 +27,14 @@ mkdir -p backups
 chmod 700 backups
 file="backups/crm-$(date -u +%Y%m%dT%H%M%SZ)-$label.dump"
 
+# Usuário e banco vêm do ambiente do próprio container do postgres.
+# shellcheck disable=SC2016
 docker compose -f compose.prod.yaml --env-file .env exec -T postgres \
-  pg_dump -U "${POSTGRES_USER:-crm}" -d "${POSTGRES_DB:-crm}" --format=custom --no-owner \
+  sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --no-owner' \
   > "$file"
 chmod 600 "$file"
 
 [[ -s "$file" ]] || { echo "backup vazio: $file" >&2; rm -f "$file"; exit 1; }
 
-find backups -name 'crm-*.dump' -type f -mtime +"${BACKUP_RETENTION_DAYS:-14}" -delete
+find backups -name 'crm-*.dump' -type f -mtime +"$retention_days" -delete
 echo "backup criado: $file ($(du -h "$file" | cut -f1))"
