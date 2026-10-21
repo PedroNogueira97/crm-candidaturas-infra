@@ -29,8 +29,26 @@ x-api-env: &api-env
   # Login com Google (opcional). URI de retorno: http://localhost:8080/api/v1/auth/google/callback
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  # Assinatura (opcional), com chaves de TESTE. Webhooks pelo serviço stripe-cli abaixo.
+  BILLING_ENABLED: ${BILLING_ENABLED:-false}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
 
 services:
+  stripe-cli:
+    # Encaminha os eventos da conta de teste do Stripe para a API local (perfil "stripe").
+    image: stripe/stripe-cli:v1.54.1
+    command:
+      - listen
+      - --forward-to
+      - api:8000/api/v1/billing/webhook
+      - --events
+      - checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,customer.subscription.trial_will_end,invoice.paid,invoice.payment_failed
+    environment:
+      STRIPE_API_KEY: ${STRIPE_SECRET_KEY:-}
+    profiles: ["stripe"]
+    restart: unless-stopped
+
   mailpit:
     # Caixa de entrada falsa: nada sai para a internet.
     image: axllent/mailpit:latest

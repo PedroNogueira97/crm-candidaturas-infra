@@ -19,6 +19,25 @@ jobs:
           cp .env.production.example .env
           BACKEND_TAG=ci FRONTEND_TAG=ci docker compose -f compose.prod.yaml --env-file .env config -q
 
+      - name: Validar compose de staging (projeto e volume separados da produção)
+        run: |
+          config=$(BACKEND_TAG=ci FRONTEND_TAG=ci docker compose -f compose.prod.yaml \
+            --env-file .env.staging.example config --format json)
+          jq -e '.name == "crm-candidaturas-staging"
+            and (.volumes["postgres-data"].name == "crm-candidaturas-staging_postgres-data")
+            and (.services.proxy.ports[0].published == "8082")
+            and (.services | has("mailpit"))' <<<"$config" >/dev/null
+          prod=$(BACKEND_TAG=ci FRONTEND_TAG=ci docker compose -f compose.prod.yaml \
+            --env-file .env.production.example config --format json)
+          jq -e '.name == "crm-candidaturas"
+            and (.volumes["postgres-data"].name == "crm-candidaturas_postgres-data")
+            and (.services | has("mailpit") | not)' <<<"$prod" >/dev/null
+
+      - name: Validar compose local
+        run: |
+          cp .env.example .env.local-ci
+          docker compose --env-file .env.local-ci --profile stripe config -q
+
       - name: Validar Caddyfile
         run: |
           docker run --rm -e SITE_ADDRESS=example.com -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
