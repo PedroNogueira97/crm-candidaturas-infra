@@ -21,14 +21,17 @@ Frontend e API ficam na mesma origem, então não há CORS entre domínios e o c
 | Arquivo | Uso |
 |---|---|
 | `compose.yaml` | Ambiente local: constrói as imagens a partir dos clones vizinhos |
-| `compose.prod.yaml` | Produção: imagens do GHCR com tags imutáveis (`sha-<commit>`) |
+| `compose.prod.yaml` | Produção e staging: imagens do GHCR com tags imutáveis (`sha-<commit>`) |
 | `Caddyfile` | Roteamento interno e cabeçalhos de segurança |
 | `nginx/crm-candidatura.conf` | Site no Nginx do host (VPS compartilhada) |
+| `nginx/staging-crm.conf` | Site do staging no Nginx do host |
 | `scripts/deploy.sh` | Pull → backup → migration → subida com health check → rollback automático |
 | `scripts/backup.sh` / `scripts/restore.sh` | Backup e restauração do PostgreSQL |
 | `scripts/bootstrap-admin.sh` | Cria a conta do administrador (uma vez) |
 | `.github/workflows/deploy.yml` | Deploy na VPS via SSH |
+| `.github/workflows/deploy-staging.yml` | Deploy do staging (branch `staging` do backend e do frontend) |
 | `docs/vps-hostinger.md` | Preparação da VPS e configuração do GitHub |
+| `docs/staging.md` | Staging: desenho, preparação, Cloudflare Access, webhook do Stripe e operação |
 | `docs/observabilidade.md` | Contrato de logs JSON, catálogo de eventos, regras de LGPD e consultas |
 
 ## Ambiente local
@@ -60,6 +63,8 @@ docker compose down -v                  # parar e APAGAR o banco local
 
 O banco local não é exposto no host. Para acessá-lo: `docker compose exec postgres psql -U crm crm`.
 
+Assinatura (Stripe) local, com chaves de **teste**: preencha `STRIPE_SECRET_KEY` e `BILLING_ENABLED=true` no `.env`, pegue o segredo do webhook com `docker compose --profile stripe run --rm stripe-cli listen --print-secret` (vai em `STRIPE_WEBHOOK_SECRET`) e suba com `docker compose --profile stripe up -d`. Cartão de teste: `4242 4242 4242 4242`.
+
 ## Fluxo de deploy
 
 1. Push em `main` no backend ou frontend → CI (lint, testes, `pip-audit`/`npm audit`, scan Trivy da imagem).
@@ -67,6 +72,8 @@ O banco local não é exposto no host. Para acessá-lo: `docker compose exec pos
 3. O repositório da aplicação dispara `repository_dispatch` (`deploy`) neste repositório com `{service, tag}`.
 4. `deploy.yml` envia compose, Caddyfile e scripts para a VPS e executa `scripts/deploy.sh --<service> <tag>`.
 5. `deploy.sh` faz backup do banco, aplica as migrations e sobe os serviços aguardando os health checks. Se algum falhar, volta para as tags anteriores.
+
+Push no branch `staging` do backend ou frontend faz o mesmo no staging (`deploy-staging`), em `/opt/crm-candidaturas-staging` (ver `docs/staging.md`).
 
 Deploy manual, rollback ou reaplicação de configuração: **Actions → Deploy produção → Run workflow**, informando as tags desejadas (vazio = manter a atual). As tags em execução ficam em `/opt/crm-candidaturas/.deploy/current.env` e o histórico em `.deploy/history.log`.
 

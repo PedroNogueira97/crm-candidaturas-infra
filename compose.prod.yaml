@@ -1,10 +1,14 @@
-# Produção (VPS). Usa imagens publicadas no GHCR; as tags vêm de scripts/deploy.sh.
+# Produção e staging (VPS). Usa imagens publicadas no GHCR; as tags vêm de scripts/deploy.sh.
 # Não executar diretamente sem BACKEND_TAG e FRONTEND_TAG definidos.
+#
+# O staging usa este mesmo arquivo em outro diretório (/opt/crm-candidaturas-staging), com o
+# próprio .env: nome do projeto, porta, memória e Mailpit vêm de variáveis (docs/staging.md).
+# Os padrões abaixo são os de produção.
 #
 # A VPS é compartilhada: o Nginx do host já ocupa 80/443 e termina o HTTPS (certbot).
 # O Caddy deste stack escuta apenas em loopback (PROXY_BIND) e o Nginx encaminha o
 # domínio para ele (ver nginx/crm-candidatura.conf).
-name: crm-candidaturas
+name: ${COMPOSE_PROJECT_NAME:-crm-candidaturas}
 
 # Logs locais são um buffer limitado por tamanho (5 MB x 2 por serviço, cerca de 15 dias no
 # tráfego de 2026-10) e somem quando o container é recriado. Ver docs/observabilidade.md.
@@ -24,7 +28,7 @@ x-api-env: &api-env
   SESSION_MAX_AGE_SECONDS: ${SESSION_MAX_AGE_SECONDS:-43200}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   LOG_FORMAT: json
-  APP_ENV: production
+  APP_ENV: ${APP_ENV:-production}
   APP_VERSION: ${BACKEND_TAG}
   INITIAL_USER_EMAIL: ${INITIAL_USER_EMAIL:-}
   INITIAL_USER_PASSWORD: ${INITIAL_USER_PASSWORD:-}
@@ -42,6 +46,11 @@ x-api-env: &api-env
   # Login com Google. URI de retorno no Google Cloud: https://SITE_ADDRESS/api/v1/auth/google/callback
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  # Assinatura (Stripe). false = ninguém é bloqueado e as telas de assinatura ficam ocultas.
+  # Webhook a cadastrar no Stripe: https://SITE_ADDRESS/api/v1/billing/webhook
+  BILLING_ENABLED: ${BILLING_ENABLED:-false}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
 
 services:
   postgres:
@@ -61,7 +70,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: ${POSTGRES_MEMORY:-512m}
     logging: *logging
     restart: unless-stopped
 
@@ -85,7 +94,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 384m
+          memory: ${API_MEMORY:-384m}
     logging: *logging
     restart: unless-stopped
 
@@ -94,7 +103,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 384m
+          memory: ${WEB_MEMORY:-384m}
     logging: *logging
     restart: unless-stopped
 
@@ -119,9 +128,26 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128m
+          memory: ${PROXY_MEMORY:-128m}
     logging: *logging
     restart: unless-stopped
+
+  # Só no staging (COMPOSE_PROFILES=mailpit no .env): caixa de entrada falsa para os e-mails
+  # do ambiente, servida em /mailpit/ pelo Nginx do host, atrás do Cloudflare Access.
+  mailpit:
+    image: axllent/mailpit:v1.31
+    environment:
+      MP_WEBROOT: /mailpit/
+      MP_MAX_MESSAGES: "500"
+    ports:
+      - "${MAILPIT_BIND:-127.0.0.1:8026}:8025"
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+    logging: *logging
+    restart: unless-stopped
+    profiles: ["mailpit"]
 
 volumes:
   postgres-data:

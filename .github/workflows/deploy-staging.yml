@@ -1,0 +1,112 @@
+name: Deploy staging
+
+# Disparado pelos repositórios backend/frontend após um push no branch `staging`
+# (repository_dispatch "deploy-staging" com client_payload {service, tag}), ou manualmente.
+# Mesmo roteiro do deploy de produção (deploy.yml), em outro diretório da mesma VPS.
+# Reaproveita os segredos do environment `production` (mesma VPS e mesmo usuário deploy;
+# decisão S5a de 2026-10-08).
+on:
+  repository_dispatch:
+    types: [deploy-staging]
+  workflow_dispatch:
+    inputs:
+      backend_tag:
+        description: "Tag da imagem do backend (vazio = manter a atual)"
+        required: false
+      frontend_tag:
+        description: "Tag da imagem do frontend (vazio = manter a atual)"
+        required: false
+
+concurrency:
+  group: staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      APP_DIR: ${{ vars.VPS_STAGING_APP_DIR || '/opt/crm-candidaturas-staging' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolver tags
+        id: tags
+        env:
+          EVENT: ${{ github.event_name }}
+          SERVICE: ${{ github.event.client_payload.service }}
+          TAG: ${{ github.event.client_payload.tag }}
+          IN_BACKEND: ${{ inputs.backend_tag }}
+          IN_FRONTEND: ${{ inputs.frontend_tag }}
+        run: |
+          backend=""; frontend=""
+          if [[ "$EVENT" == "repository_dispatch" ]]; then
+            case "$SERVICE" in
+              backend) backend="$TAG" ;;
+              frontend) frontend="$TAG" ;;
+              *) echo "serviço inválido: $SERVICE"; exit 1 ;;
+            esac
+          else
+            backend="$IN_BACKEND"; frontend="$IN_FRONTEND"
+          fi
+          for t in "$backend" "$frontend"; do
+            [[ -z "$t" || "$t" =~ ^[A-Za-z0-9._-]{1,128}$ ]] || { echo "tag inválida: $t"; exit 1; }
+          done
+          args=""
+          [[ -n "$backend" ]] && args+=" --backend $backend"
+          [[ -n "$frontend" ]] && args+=" --frontend $frontend"
+          echo "args=$args" >> "$GITHUB_OUTPUT"
+          echo "Deploy staging:${args:- reaplicar tags atuais}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Configurar SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host vps
+            HostName ${{ secrets.VPS_HOST }}
+            Port ${{ secrets.VPS_PORT || '22' }}
+            User ${{ secrets.VPS_USER }}
+            IdentityFile ~/.ssh/id_deploy
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+          EOF
+
+      - name: Conferir o .env do staging
+        # O .env é criado à mão uma vez (docs/staging.md). Sem ele, ou apontando para o
+        # projeto de produção, o deploy não roda.
+        run: |
+          ssh vps "test -f '$APP_DIR/.env' && grep -qx 'COMPOSE_PROJECT_NAME=crm-candidaturas-staging' '$APP_DIR/.env'" \
+            || { echo "$APP_DIR/.env ausente ou sem COMPOSE_PROJECT_NAME=crm-candidaturas-staging"; exit 1; }
+
+      - name: Enviar compose, Caddyfile e scripts
+        run: |
+          rsync -az --chmod=D750,F640 compose.prod.yaml Caddyfile vps:"$APP_DIR/"
+          rsync -az --chmod=D750,F750 scripts/ vps:"$APP_DIR/scripts/"
+
+      - name: Login no GHCR na VPS
+        env:
+          GHCR_USER: ${{ secrets.GHCR_USER }}
+          GHCR_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | ssh vps "docker login ghcr.io -u '$GHCR_USER' --password-stdin" >/dev/null
+
+      - name: Deploy
+        run: ssh vps "cd '$APP_DIR' && scripts/deploy.sh${{ steps.tags.outputs.args }}"
+
+      - name: Verificar a API pela porta local
+        # O endereço público passa pelo Cloudflare Access; a conferência é feita na própria VPS.
+        run: ssh vps "curl -fsS http://127.0.0.1:8082/api/health"
+
+      - name: Limpar chave
+        if: always()
+        run: rm -f ~/.ssh/id_deploy
